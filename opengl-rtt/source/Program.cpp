@@ -191,4 +191,12 @@ void Program::setUniform(const GLchar* uniformName, const glm::vec4& v) {
     setUniform4v(uniformName, glm::value_ptr(v));
 }
 
+GLboolean Program::hasUniform(const GLchar *uniformName)
+{
+    assert(isInUse());
+    
+    GLint uniform = glGetUniformLocation(_object, uniformName);
+    return uniform>=0;
+}
+
 

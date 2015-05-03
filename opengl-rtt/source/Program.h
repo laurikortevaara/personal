@@ -104,6 +104,8 @@ void setUniform4v(const GLchar* uniformName, const OGL_TYPE* v, GLsizei count=1)
         void setUniform(const GLchar* uniformName, const glm::vec3& v);
         void setUniform(const GLchar* uniformName, const glm::vec4& v);
         
+        GLboolean hasUniform( const GLchar* uniformName );
+        
         
     private:
         GLuint _object;

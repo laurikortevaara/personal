@@ -1,23 +1,20 @@
 #version 400 core
 
-uniform mat4 projection;
-uniform mat4 camera;
-uniform mat4 model;
+uniform mat4 mvp;
 
-in vec3 vert;
-in vec2 vertTexCoord;
-in vec3 vertNormal;
+layout(location = 0) in vec3 vert;
+layout(location = 1) in vec2 vertTexCoord;
+//layout(location = 2) in vec3 vertNormal;
 
 out vec3 fragVert;
 out vec2 fragTexCoord;
-out vec3 fragNormal;
 
-void main() {
+void main()
+{
     // Pass some variables to the fragment shader
     fragTexCoord = vertTexCoord;
-    fragNormal = vertNormal;
     fragVert = vert;
     
     // Apply all matrix transformations to vert
-    gl_Position = projection * camera * model * vec4(vert, 1);
+    gl_Position = mvp * vec4(vert, 1);
 }

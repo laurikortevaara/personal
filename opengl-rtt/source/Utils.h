@@ -17,10 +17,12 @@ size_t fileLen( const std::string filePath );
 
 namespace StringUtils {
     std::string formatStr(const std::string format_str, ...);
+    std::string hexStr(unsigned long iValue);
 }
 
 namespace Utils {
 void assert_throw( bool bAssertion, const std::string& error );
+void checkGLError(bool showError = true, const char* functionName = __PRETTY_FUNCTION__);
 }
 
 #endif /* defined(__opengl_rtt__Utils__) */
