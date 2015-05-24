@@ -1,0 +1,6 @@
+*.dylib
+*.a
+build/
+.DS_Store
+*~
+#*#
