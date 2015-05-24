@@ -4,8 +4,9 @@ uniform sampler2D tex;
 uniform sampler2D shadowMap;
 
 in vec3 fragVert;
-in vec2 fragTexCoord;
 in vec3 fragNormal;
+in vec2 fragTexCoord;
+
 
 in vec4 fragLight;
 in vec4 ShadowCoord;

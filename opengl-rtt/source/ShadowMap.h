@@ -26,6 +26,7 @@ private:
     GLint m_viewportCache[4];
     
     glm::mat4 m_depthMVP;
+    glm::vec3 m_lightPos;
     
     void bindTexture();
 public:
@@ -39,6 +40,9 @@ public:
     GLboolean isValid();
     void use();
     void unuse();
+    
+    glm::vec3 getLightPos() const { return m_lightPos; }
+    void setLightPos(const glm::vec3& pos){m_lightPos = pos;}
     
     void setShaderMVP(Program* p);
     glm::mat4 getMVP();

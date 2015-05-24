@@ -19,14 +19,22 @@ class Vertex
 {
 public:
     GLfloat x,y,z;
+    GLfloat nx,ny,nz;
     GLfloat u,v;
-    Vertex(GLfloat x,GLfloat y,GLfloat z,GLfloat u,GLfloat v):x(x),y(y),z(z),u(u),v(v){};
+    Vertex(){};
+    Vertex(GLfloat x,GLfloat y,GLfloat z,
+           GLfloat nx,GLfloat ny,GLfloat nz,
+           GLfloat u,GLfloat v):
+            x(x),y(y),z(z),
+            nx(nx),ny(ny),nz(nz),
+            u(u),v(v){};
 };
 
 class Object
 {
 private:
     glm::mat4           m_ModelMatrix;
+    glm::mat4           m_RotateMatrix;
     VertexArrayObject   m_vao;
     VertexBufferObject  m_vbo;
     unsigned int        m_numVertices;
@@ -40,6 +48,8 @@ public:
     void setMesh( std::vector<Vertex> vertices );
     glm::mat4& modelMatrix() { return m_ModelMatrix; }
     void setModelMatrix(glm::mat4 mat) { m_ModelMatrix = mat; }
+    glm::mat4& rotateMatrix() {return m_RotateMatrix; }
+    void setRotateMatrix(glm::mat4 mat) { m_RotateMatrix = mat; }
     void setTexture(Texture* tex) { m_texture = tex; }
     Texture* texture() { return m_texture; }
     

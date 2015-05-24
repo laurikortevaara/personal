@@ -30,6 +30,7 @@ include_directories( thirdparty )
 include_directories( thirdparty/glfw/include )
 include_directories( thirdparty/glew_cmake/include )
 include_directories( thirdparty/glm )
+include_directories( thirdparty/fbx/include )
 
 # Define the project name
 

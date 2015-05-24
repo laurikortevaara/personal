@@ -20,7 +20,8 @@ ShadowMap::ShadowMap(GLuint width, GLuint height, GLenum colorMode ) :
     m_width(width),
     m_height(height),
     m_colorMode(colorMode),
-    m_renderedTexture(0)
+    m_renderedTexture(0),
+    m_lightPos({-20,10,0})
 {    
     glGenFramebuffers(1, &m_object);
     Utils::checkGLError();
@@ -75,8 +76,8 @@ void ShadowMap::createTexture()
     /*glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
     Utils::checkGLError();
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_R_TO_TEXTURE);
-    Utils::checkGLError();
-     */
+    Utils::checkGLError();*/
+    
     glFramebufferTexture(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, m_renderedTexture, 0);
     
     /*glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, m_renderedTexture, 0);
@@ -151,7 +152,8 @@ glm::mat4 ShadowMap::getMVP()
     GLfloat right =  s;
     GLfloat top =   -s;
     GLfloat bottom = s;
-    glm::mat4 viewProjOrtho = lookAtOrtho({0,10,0}, {0,0,0}, {0,0,1}, -5.0f, 50.0f,left,top,right,bottom);
+    
+    glm::mat4 viewProjOrtho = lookAtOrtho(m_lightPos, {0,0,0}, {0,0,1}, -5.0f, 50.0f,left,top,right,bottom);
 
     return viewProjOrtho;
 }

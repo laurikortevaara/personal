@@ -46,6 +46,7 @@ void VertexBufferObject::setVertices(std::vector<Vertex>& verts)
     std::vector<GLfloat> vertices;
     for(auto v : verts){
         vertices.push_back(v.x);vertices.push_back(v.y);vertices.push_back(v.z);
+        vertices.push_back(v.nx);vertices.push_back(v.ny);vertices.push_back(v.nz);
         vertices.push_back(v.u);vertices.push_back(v.v);
     }
     glBufferData(GL_ARRAY_BUFFER, vertices.size()*sizeof(Vertex), vertices.data(), GL_STATIC_DRAW);

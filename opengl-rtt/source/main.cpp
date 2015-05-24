@@ -1,44 +1,19 @@
-/*
- main
- 
- Copyright 2012 Thomas Dalling - http://tomdalling.com/
- 
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
- 
- http://www.apache.org/licenses/LICENSE-2.0
- 
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License.
- */
-
-#include "Platform.h"
-
-// third-party libraries
-#include <GL/glew.h>
-#include <GLFW/glfw3.h>
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-
-
-// standard C++ libraries
 #include <cassert>
 #include <iostream>
 #include <stdexcept>
 #include <cmath>
 #include <chrono>
 #include <ctime>
-
 #include <string>
 #include <sstream>
 #include <iostream>
 #include <iomanip>
 
-// tdogl classes
+#include <GL/glew.h>
+#include <GLFW/glfw3.h>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+
 #include "Program.h"
 #include "Texture.h"
 #include "Shader.h"
@@ -46,6 +21,8 @@
 #include "ShadowMap.h"
 #include "Object.h"
 #include "Utils.h"
+
+#include <fbxsdk.h>
 
 
 // constants
@@ -58,8 +35,15 @@ GLuint color_tex = 0;
 GLuint depth_tex = 0;
 GLuint fbo = 0;
 
+// FBX SDK
+FbxManager* gFbxManager = NULL;
+
 Texture* gTexture = NULL;
 Texture* gTexture2 = NULL;
+Texture* gTexture4 = NULL;
+Texture* gTextureGround1 = NULL;
+Texture* gTextureGround2 = NULL;
+Texture* gTextureGround3 = NULL;
 
 Program* gCurrentProgram = NULL;
 Program* gProgramSimple = NULL;
@@ -69,6 +53,35 @@ Program* gProgramShadowMap = NULL;
 Program* gProgramQuad = NULL;
 GLuint   gCurrentTexture = NULL;
 GLuint   gQuadTexture = NULL;
+GLboolean gAnimate = true;
+
+GLfloat  gZNear = 1.0f;
+GLfloat  gZFar = 2000.0f;
+GLfloat  gShadowDelta = -0.0005;
+GLfloat  gJoystickDelta = 0.08;
+
+glm::vec2 gJoystickLeft;
+glm::vec2 gJoystickRight;
+
+enum JOYSTICK_BUTTON{
+    SELECT = 0,
+    LEFT_ANALOG = 1,
+    RIGHT_ANALOG = 2,
+    START = 3,
+    UP = 4,
+    RIGHT = 5,
+    DOWN = 6,
+    LEFT = 7,
+    L2 = 8,
+    R2 = 9,
+    L1 = 10,
+    R1 = 11,
+    TRIANGLE = 12,
+    CIRCLE = 13,
+    X = 14,
+    SQUARE = 15,
+    PS = 16
+};
 
 std::vector<Object*> gObjects;
 Object* gQuad = NULL;
@@ -79,10 +92,14 @@ ShadowMap* gShadowMap = NULL;
 GLuint gVAO = 0;
 GLuint gVBO = 0;
 GLfloat gDegreesRotated = 0.0f;
-glm::vec3 lightPos = glm::vec3(0,0,0);
 
 GLuint gVAOQuad = 0;
 GLuint gVBOquad = 0;
+
+glm::vec3 gCameraPos(0,0,0);
+GLfloat gCameraDistance = 3.0f;
+GLfloat gCameraAngleX = 0.0f;
+GLfloat gCameraAngleY = 0.0f;
 
 static void renderToScreen();
 static void renderModel();
@@ -118,8 +135,8 @@ static void renderQuad()
     if(gQuad==NULL)
     {
         gQuad = new Object();
-        std::vector<Vertex> vertices({{-1,-1,0,0,0},{1,-1,0,1,0},{1,1,0,1,1},
-                                      {-1,-1,0,0,0},{1,1,0,1,1},{-1,1,0,0,1}});
+        std::vector<Vertex> vertices({{-1,-1,0,0,0,-1,0,0},{1,-1,0,0,0,-1,1,0},{1,1,0,0,0,-1,1,1},
+                                      {-1,-1,0,0,0,-1,0,0},{1,1,0,0,0,-1,1,1},{-1,1,0,0,0,-1,0,1}});
         gQuad->setMesh(vertices);
     }
     glViewport(0,0,500,500);
@@ -137,7 +154,7 @@ static void renderQuad()
     GLfloat right = -1.0f;
     GLfloat top =    1.0f;
     GLfloat bottom =-1.0f;
-    glm::mat4 viewProj = lookAtOrtho({0,0,-1}, {0,0,0}, {0,1,0}, 0.01f, 10.0f,left,top,right,bottom);
+    glm::mat4 viewProj = lookAtOrtho({0,0,-1}, {0,0,0}, {0,1,0}, gZNear, gZFar,left,top,right,bottom);
     gCurrentProgram->setUniform("mvp", viewProj);
         
     GLint texture = gCurrentProgram->uniform("tex");
@@ -309,39 +326,151 @@ static glm::mat4 lookAtOrtho(glm::vec3 pos, glm::vec3 target, glm::vec3 up, GLfl
     return projection * view;
 }
 
+static std::vector<Vertex> createCube(GLfloat s)
+{
+    return
+    {{-s,-s,-s,0,-1,0,0,0},{ s,-s,-s,0,-1,0,s,0},{ s,-s, s,0,-1,0,s,s}, // bottom
+    {-s,-s,-s,0,-1,0,0,0},{ s,-s, s,0,-1,0,s,s},{-s,-s, s,0,-1,0,0,s}, // bottom
+    {-s, s,-s,0, 1,0,0,0},{ s, s, s,0, 1,0,s,s},{ s, s,-s,0, 1,0,s,0}, // top
+    {-s, s,-s,0, 1,0,0,0},{-s, s, s,0, 1,0,0,s},{ s, s, s,0, 1,0,s,s}, // top
+    {-s,-s,-s,-1,0,0,0,0},{-s, s, s,-1, 0,0,s,s},{-s, s,-s,-1,0,0,s,0}, // left
+    {-s,-s,-s,-1,0,0,0,0},{-s,-s, s,-1, 0,0,0,s},{-s, s, s,-1,0,0,s,s}, // left
+    { s,-s,-s, 1,0,0,0,0},{ s, s,-s, 1, 0,0,s,0},{ s, s, s,1,0,0,s,s}, // right
+    { s,-s,-s, 1,0,0,0,0},{ s, s, s, 1, 0,0,s,s},{ s,-s, s,1,0,0,0,s}, // right
+    {-s,-s,-s,0,0,-1,0,0},{ s, s,-s,0,0,-1,s,s},{ s,-s,-s,0,0,-1,s,0}, // front
+    {-s,-s,-s,0,0,-1,0,0},{-s, s,-s,0,0,-1,0,s},{ s, s,-s,0,0,-1,s,s}, // front
+    {-s,-s, s,0,0,1,0,0},{ s,-s, s,0,0,1,s,0},{ s, s, s,0,0,1,s,s}, // back
+    {-s,-s, s,0,0,1,0,0},{ s, s, s,0,0,1,s,s},{-s, s, s,0,0,1,0,s}}; // back
+}
+
+static GLfloat rand(GLfloat minValue, GLfloat maxValue)
+{
+    return fmin(maxValue,fmax(minValue,rand()/(GLfloat)RAND_MAX*minValue + rand()/(GLfloat)RAND_MAX * maxValue));
+}
+
+GLboolean readFbx(std::vector<Vertex>& vertices)
+{
+    if(gFbxManager == nullptr)
+    {
+        gFbxManager = FbxManager::Create();
+        
+        FbxIOSettings* pIOsettings = FbxIOSettings::Create(gFbxManager, IOSROOT );
+        gFbxManager->SetIOSettings(pIOsettings);
+    }
+    
+    FbxImporter* pImporter = FbxImporter::Create(gFbxManager,"");
+    FbxScene* pFbxScene = FbxScene::Create(gFbxManager,"");
+    
+    bool bSuccess = pImporter->Initialize("models/quad.fbx", -1, gFbxManager->GetIOSettings() );
+    if(!bSuccess) return GL_FALSE;
+    
+    bSuccess = pImporter->Import(pFbxScene);
+    if(!bSuccess) return GL_FALSE;
+    
+    pImporter->Destroy();
+    
+    FbxNode* pFbxRootNode = pFbxScene->GetRootNode();
+    
+    if(pFbxRootNode)
+    {
+        for(int i = 0; i < pFbxRootNode->GetChildCount(); i++)
+        {
+            FbxNode* pFbxChildNode = pFbxRootNode->GetChild(i);
+            
+            if(pFbxChildNode->GetNodeAttribute() == NULL)
+                continue;
+            
+            FbxNodeAttribute::EType AttributeType = pFbxChildNode->GetNodeAttribute()->GetAttributeType();
+            
+            if(AttributeType != FbxNodeAttribute::eMesh)
+                continue;
+            
+            FbxMesh* pMesh = (FbxMesh*) pFbxChildNode->GetNodeAttribute();
+            
+            FbxVector4* pVertices = pMesh->GetControlPoints();
+            
+            for (int j = 0; j < pMesh->GetPolygonCount(); j++)
+            {
+                int iNumVertices = pMesh->GetPolygonSize(j);
+                assert( iNumVertices == 3 );
+                
+                FbxLayerElementNormal *Normals = pMesh->GetLayer( 0 )->GetNormals( );
+                FbxLayerElement::EMappingMode MappingMode = pMesh->GetLayer( 0 )->GetNormals( )->GetMappingMode( );
+                
+                for (int k = 0; k < iNumVertices; k++)
+                {
+                    int iControlPointIndex = pMesh->GetPolygonVertex(j, k);
+                    
+                    Vertex vertex;
+                    glm::vec3 v({ (float)pVertices[iControlPointIndex].mData[0],
+                                  (float)pVertices[iControlPointIndex].mData[2],
+                                  (float)pVertices[iControlPointIndex].mData[1]});
+                    
+                    vertex.x = v.x;
+                    vertex.y = v.y;
+                    vertex.z = v.z;
+                    
+                    FbxVector4 Normal = Normals->GetDirectArray( ).GetAt( k );
+                    vertex.nx = ( float ) Normal.mData[0];
+                    vertex.ny = ( float ) Normal.mData[2];
+                    vertex.nz = ( float ) Normal.mData[1];
+
+                    vertices.push_back( vertex );
+                }
+            }
+        }
+    }
+    return true;
+}
+
+
+
 static void CreateObjects() {
-    Object* obj1 = new Object();
-    std::vector<Vertex> vertices;
-    GLfloat y = 0.0f;
-    GLfloat s = 1.5f;
-    vertices = {{-s,y,-s,0,0},{ s,y,-s,s,0},{ s, y,s,s,s},
-        {-s,y,-s,0,0},{ s,y, s,s,s},{ -s, y,s,0,s}};
-    obj1->setMesh(vertices);
-    obj1->setTexture(gTexture);
-    gObjects.push_back(obj1);
+    float y = -1.0f;
+    float s = 1.5f;
+
+/*    for(int i=0; i < 10; ++i)
+    {
+        Object* obj1 = new Object();
+        std::vector<Vertex> vertices;
+        GLfloat s = rand(0.3,1.5);
+        vertices = createCube(s);
+
+        obj1->setMesh(vertices);
+        obj1->setTexture(gTexture);
+        gObjects.push_back(obj1);
+        obj1->setModelMatrix(glm::translate(glm::mat4(1),glm::vec3(rand(-100,100),rand(0,5),rand(-100,100))));
+    }
     
     Object* obj2 = new Object();
     std::vector<Vertex> vertices2;
-    y = -1.0f;
-    s = 1.5f;
-    vertices2 = {{-s,y,-s,0,0},{ s,y,-s,s,0},{ s, y,s,s,s},
-        {-s,y,-s,0,0},{ s,y, s,s,s},{ -s, y,s,0,s}};
+        vertices2 = {{-s,y,-s,0,1,0,0,0},{ s, y,s,0,1,0,s,s},{ s,y,-s,0,1,0,s,0},
+                 {-s,y,-s,0,1,0,0,0},{ -s, y,s,0,1,0,0,s},{ s,y, s,0,1,0,s,s}};
     obj2->setMesh(vertices2);
     obj2->setTexture(gTexture2);
     gObjects.push_back(obj2);
-    
+  */
     
     Object* obj3 = new Object();
     std::vector<Vertex> vertices3;
     y = -2.0f;
-    s = 10.0f;
+    s = 1000.0f;
 
-    vertices3 = {{-s,y,-s,0,0},{ s,y,-s,s,0},{ s, y,s,s,s},
-        {-s,y,-s,0,0},{ s,y, s,s,s},{ -s, y,s,0,s}};
+    vertices3 = {{-s,y,-s,0,1,0,0,0},{ s, y,s,0,1,0,s,s},{ s,y,-s,0,1,0,s,0},
+                 {-s,y,-s,0,1,0,0,0},{ -s, y,s,0,1,0,0,s},{ s,y, s,0,1,0,s,s}};
 
     obj3->setMesh(vertices3);
-    obj3->setTexture(gTexture);
+    obj3->setTexture(gTextureGround2);
     gObjects.push_back(obj3);
+    
+    std::vector<Vertex> fbxVerts;
+    if(readFbx(fbxVerts))
+    {
+        Object* obj4 = new Object();
+        obj4->setMesh(fbxVerts);
+        obj4->setTexture(gTexture4);
+        gObjects.push_back(obj4);
+    }
 }
 
 
@@ -349,6 +478,11 @@ static void CreateObjects() {
 static void LoadTexture() {
     gTexture = new Texture("textures/Stone_Floor_texture.png");
     gTexture2 = new Texture("textures/purple.png");
+    gTexture4 = new Texture("textures/purple.png");
+    
+    gTextureGround1 = new Texture("textures/ground1.jpg");
+    gTextureGround2 = new Texture("textures/ground2.jpg");
+    gTextureGround3 = new Texture("textures/ground3.jpg");
 
     gTexture->printInfo();
     gTexture2->printInfo();
@@ -370,14 +504,14 @@ static void renderToFbo()
     gCurrentProgram->use();
     gFrameBuffer->use();
     
-    glm::mat4 viewProj = lookAt({0,10,0},{0,0,0},{0,0,-1}, 0.1, 100);
+    glm::mat4 viewProj = lookAt(gCameraPos,{0,0,0},{0,0,-1}, gZNear, gZFar);
     
     GLfloat s= 10.0f;
     GLfloat left =   s;
     GLfloat right = -s;
     GLfloat top =    s;
     GLfloat bottom =-s;
-    glm::mat4 viewProjOrtho = lookAtOrtho({0,10,0}, {0,0,0}, {0,0,1}, 0.1f, 100.0f,left,top,right,bottom);
+    glm::mat4 viewProjOrtho = lookAtOrtho(gCameraPos, {0,0,0}, {0,0,1}, gZNear, gZFar, left,top,right,bottom);
     
     // clear everything
     glClearColor(0, 0, 0, 1); // black
@@ -385,7 +519,7 @@ static void renderToFbo()
     
     for(auto model : gObjects)
     {
-        glm::mat4 mvp = viewProjOrtho * model->modelMatrix();
+        glm::mat4 mvp = viewProjOrtho * model->modelMatrix() * model->rotateMatrix();
         //glActiveTexture(GL_TEXTURE0);
         //glBindTexture(GL_TEXTURE_2D,model->texture()->object());
     
@@ -396,15 +530,12 @@ static void renderToFbo()
 
         model->render();
     }
-    gCurrentProgram->stopUsing();
+    gCurrentProgram->unuse();
     gFrameBuffer->unuse();
 }
 
 static void renderToShadowMap()
 {
-    glFrontFace(GL_CCW);
-    //glEnable(GL_CULL_FACE);
-    glEnable(GL_DEPTH_TEST);
     glPolygonOffset(1.1, 4.0);
     bool bShadow = true;
     if(bShadow){
@@ -424,7 +555,7 @@ static void renderToShadowMap()
     
     for(auto model : gObjects)
     {
-        glm::mat4 mvp = gShadowMap->getMVP() * model->modelMatrix();
+        glm::mat4 mvp = gShadowMap->getMVP() * model->modelMatrix() * model->rotateMatrix();
         
         // set the "model" uniform in the vertex shader, based on the gDegreesRotated global
         if(gCurrentProgram->hasUniform("mvp"))
@@ -437,9 +568,9 @@ static void renderToShadowMap()
     else
         gFrameBuffer->unuse();
     
-    gCurrentProgram->stopUsing();
+    gCurrentProgram->unuse();
     glPolygonOffset(0.0,0.0);
-    glDisable(GL_CULL_FACE);
+    //glDisable(GL_CULL_FACE);
 }
 
 void uninitializeFbo()
@@ -471,8 +602,8 @@ static void renderToScreen()
     gCurrentProgram = gProgramTexture;
     gCurrentProgram->use();
     
-    glm::mat4 viewProj = lookAt({0,2,-10},{0,0,0},{0,1,0}, 0.1, 100);
-    glm::mat4 viewProjOrtho = lookAtOrtho({0,0,-10}, {0,0,0}, {0,1,0}, 0.1, 100);
+    glm::mat4 viewProj = lookAt(gCameraPos,{0,0,0},{0,1,0}, gZNear, gZFar);
+    glm::mat4 viewProjOrtho = lookAtOrtho({0,0,-10}, {0,0,0}, {0,1,0}, gZNear, gZFar);
     
     // clear everything
     glClearColor(0, 0, 0, 1); // black
@@ -497,11 +628,13 @@ static void renderToScreen()
         glBindTexture( GL_TEXTURE_2D, gShadowMap->texture());
         glUniform1i(shadowTexture,1);
 
-        glm::mat4 mvp = viewProj * model->modelMatrix();
-        
-        glm::mat4 depthBiasMVP = biasMatrix*gShadowMap->getMVP()*model->modelMatrix();
+        glm::mat4 mvp =  viewProj * model->modelMatrix() * model->rotateMatrix();
+        glm::mat4 depthBiasMVP = biasMatrix*gShadowMap->getMVP()*model->modelMatrix() * model->rotateMatrix();
         gCurrentProgram->setUniform("DepthBiasMVP", depthBiasMVP);
-
+        gCurrentProgram->setUniform("shadowDelta", gShadowDelta);
+        gCurrentProgram->setUniform("lightPos", gShadowMap->getLightPos());
+        gCurrentProgram->setUniform("modelView", glm::lookAt(gCameraPos, glm::vec3(0,0,0), glm::vec3(0,1,0)));
+        gCurrentProgram->setUniform("CameraPos", gCameraPos);
         
         // set the "model" uniform in the vertex shader, based on the gDegreesRotated global
         if(gCurrentProgram->hasUniform("mvp"))
@@ -509,42 +642,102 @@ static void renderToScreen()
 
         model->render();
     }
-    gCurrentProgram->stopUsing();
+    gCurrentProgram->unuse();
 }
 
 
 // update the scene based on the time elapsed since last update
 void Update(float secondsElapsed) {
-    const GLfloat degreesPerSecond = 30.0f;
-    gDegreesRotated += secondsElapsed * degreesPerSecond;
-    while(gDegreesRotated > 360.0f) gDegreesRotated -= 360.0f;
-    
-    lightPos = glm::vec3(sin(gDegreesRotated*3.14f/180.0f)*10.0f,10.5f, cos(gDegreesRotated*3.14f/180.0f)*10.0f);
-    
-    int index = 0;
-    for(auto model : gObjects)
-    {
-        glm::mat4 mvp = model->modelMatrix();
-        //mvp = glm::rotate(mvp, 0.001f*index, glm::vec3(0,1,0));
-        model->setModelMatrix(mvp);
-        index++;
+    if(gAnimate){
+        const GLfloat degreesPerSecond = 30.0f;
+        gDegreesRotated += secondsElapsed * degreesPerSecond;
+        
+        glm::mat4 m;
+        /*glm::mat4 m = gObjects[0]->modelMatrix();
+        m = glm::translate(glm::mat4(1), glm::vec3(-2+gDegreesRotated*0.01f,gDegreesRotated*0.01f, 0.0));
+        m = glm::rotate(m, gDegreesRotated*0.01f, glm::vec3(1.0,0.5,0.25));
+        gObjects[0]->setModelMatrix(m);
+         */
+        
+        m = gObjects[1]->modelMatrix();
+        m = glm::translate(glm::mat4(1), glm::vec3(2,0, 0.0));
+        gObjects[1]->setModelMatrix(m);
+/*
+        m = gObjects[2]->modelMatrix();
+        m = glm::translate(glm::mat4(1), glm::vec3(0,gDegreesRotated*0.001f, 0.0));
+        gObjects[2]->setModelMatrix(m);
+ */
+        glm::vec3 lightPos = gShadowMap->getLightPos();
+        GLfloat distance = 3.0;
+        lightPos.x = cos(gDegreesRotated*(3.14/180.0))*distance;
+        lightPos.z = sin(gDegreesRotated*(3.14/180.0))*distance;
+        distance = 3.0 + sin(gDegreesRotated*(3.14/180.0)/2.0)*1.5;
+        gShadowMap->setLightPos(lightPos);
     }
+  
+    int buttonCount;
+    const unsigned char* buttons = glfwGetJoystickButtons(GLFW_JOYSTICK_1, &buttonCount);
+    /*std::stringstream ss;
+    for(int i=0; i < buttonCount; ++i){
+        std::string pressed = buttons[i] == (const unsigned char)GLFW_PRESS ? "(X)" : "( )";
+        ss << "[" << i << "]:" << pressed << ", ";
+    }
+    std::cout << ss.str() << std::endl;*/
+
+    int count;
+    const float* axes = glfwGetJoystickAxes(GLFW_JOYSTICK_1, &count);
+    if(fabs(axes[0])<gJoystickDelta)
+        gJoystickLeft.x = 0.0f;
+    else
+        gJoystickLeft.x = -axes[0];
+
+    if(fabs(axes[1])<gJoystickDelta)
+        gJoystickLeft.y = 0.0f;
+    else
+        gJoystickLeft.y = -axes[1];
     
+    if(fabs(axes[2])<gJoystickDelta)
+        gJoystickRight.x = 0.0f;
+    else
+        gJoystickRight.x = -axes[2];
+    
+    if(fabs(axes[3])<gJoystickDelta)
+        gJoystickRight.y = 0.0f;
+    else
+        gJoystickRight.y = -axes[3];
+    
+    if(gJoystickRight.x != 0.0f || gJoystickRight.y != 0.0f){
+        int i=0;
+    }
     glm::mat4 m = gObjects[0]->modelMatrix();
-    m = glm::translate(glm::mat4(1), glm::vec3(-2+gDegreesRotated*0.01f,gDegreesRotated*0.01f, 0.0));
-    m = glm::rotate(m, gDegreesRotated*0.01f, glm::vec3(1.0,0,0));
+    glm::mat4 r = gObjects[0]->rotateMatrix();
+    GLfloat ytrans = 0.0f;
+    if(buttons[R2]==GLFW_PRESS)
+        ytrans += 0.1f;
+    if(buttons[L2]==GLFW_PRESS)
+        ytrans -= 0.1f;
+    //m = glm::translate(m, glm::vec3(gJoystickRight.x*0.5f,ytrans, gJoystickRight.y*0.5f));
+    gCameraAngleY += gJoystickRight.x*0.1;
+    gCameraAngleX += gJoystickRight.y*0.1;
+    gCameraDistance -= gJoystickLeft.y*0.1;
+    
+    
+    gCameraPos.x = (cos(gCameraAngleY))*gCameraDistance;
+    gCameraPos.y = gCameraAngleX;
+    gCameraPos.z = sin(gCameraAngleY)*gCameraDistance;
+    
+    //r = glm::rotate(r, gJoystickLeft.y*0.05f, glm::vec3(1.0,0.0f,0.0f));
+    //r = glm::rotate(r, gJoystickLeft.x*0.05f, glm::vec3(0.0f,1.0f,0.0f));
     gObjects[0]->setModelMatrix(m);
-    
-    m = gObjects[1]->modelMatrix();
-    m = glm::translate(glm::mat4(1), glm::vec3(2,0, 0.0));
-    gObjects[1]->setModelMatrix(m);
-    
-    m = gObjects[2]->modelMatrix();
-    m = glm::translate(glm::mat4(1), glm::vec3(0,gDegreesRotated*0.001f, 0.0));
-    //m = glm::rotate(m, gDegreesRotated*0.01f, glm::vec3(0,1,0));
-    gObjects[2]->setModelMatrix(m);
+    gObjects[0]->setRotateMatrix(r);
 
-
+    /*
+     glm::vec3 lightPos = gShadowMap->getLightPos();
+    lightPos.x += gJoystickRight.x;
+    lightPos.z += gJoystickRight.y;
+    gShadowMap->setLightPos(lightPos);
+     */
+    
 }
 
 void OnError(int errorCode, const char* msg) {
@@ -555,6 +748,9 @@ static void key_callback(GLFWwindow* window, int key, int scancode, int action, 
 {
     if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
         glfwSetWindowShouldClose(window, GL_TRUE);
+    if (key == GLFW_KEY_SPACE && action == GLFW_RELEASE)
+        gAnimate = !gAnimate;
+    
     if( key == GLFW_KEY_F && action == GLFW_RELEASE) {
         Texture* t = new Texture();
         t->setObject(gFrameBuffer->texture());
@@ -566,14 +762,10 @@ static void key_callback(GLFWwindow* window, int key, int scancode, int action, 
         t->printInfo();
         delete t;
     }
-    if( key == GLFW_KEY_LEFT )
-        gDegreesRotated += 1.0;
-    if(key == GLFW_KEY_RIGHT)
-        gDegreesRotated -= 1.0;
     
-    if(key == GLFW_KEY_F)
+    if(key == GLFW_KEY_F && action == GLFW_RELEASE)
         gQuadTexture = gFrameBuffer->texture();
-    if(key == GLFW_KEY_S)
+    if(key == GLFW_KEY_S && action == GLFW_RELEASE)
         gQuadTexture = gShadowMap->texture();
 }
 
@@ -624,6 +816,8 @@ void AppMain() {
         throw std::runtime_error("OpenGL 3.2 API is not available.");
     
     // OpenGL settings
+    glFrontFace(GL_CCW);
+    glEnable(GL_CULL_FACE);
     glEnable(GL_DEPTH_TEST);
     Utils::checkGLError();
     glDepthFunc(GL_LESS);
@@ -635,6 +829,8 @@ void AppMain() {
     Utils::checkGLError();
     
     //initializeQuad();
+    
+    gFbxManager = FbxManager::Create();
     
     // load vertex and fragment shaders into opengl
     LoadShaders();
@@ -655,6 +851,8 @@ void AppMain() {
     // run while the window is open
     double lastTime = glfwGetTime();
     gQuadTexture = gTexture->object();
+    
+    const char* name = glfwGetJoystickName(GLFW_JOYSTICK_1);
     
     while(!glfwWindowShouldClose(gWindow)){
         // process pending events
@@ -711,10 +909,10 @@ static void initializeQuad()
     
     GLfloat vertexData[] {
         -1.0f, -1.0f, 0.0f,
-        1.0f, -1.0f, 0.0f,
-        1.0f,  1.0f, 0.0f,
+         1.0f, -1.0f, 0.0f,
+         1.0f,  1.0f, 0.0f,
         -1.0f, -1.0f, 0.0f,
-        1.0f,  1.0f, 0.0f,
+         1.0f,  1.0f, 0.0f,
         -1.0f,  1.0f, 0.0f
     };
     glBufferData(GL_ARRAY_BUFFER, sizeof(vertexData), vertexData, GL_STATIC_DRAW);
@@ -730,7 +928,7 @@ static void initializeQuad()
 
 int main(int argc, char *argv[]) {
     try {
-        testTime();
+        //testTime();
         AppMain();
     } catch (const std::exception& e){
         std::cerr << "ERROR: " << e.what() << std::endl;

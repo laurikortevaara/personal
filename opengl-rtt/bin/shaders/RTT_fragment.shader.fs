@@ -3,6 +3,7 @@
 uniform sampler2D tex;
 
 in vec3 fragVert;
+in vec3 fragNormal;
 in vec2 fragTexCoord;
 
 out vec4 frag_color;
